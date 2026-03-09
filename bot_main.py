@@ -1,109 +1,97 @@
 import asyncio
-import requests
-import base64
+import logging
+
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 
-# Твої дані (з кабінету)
-CLIENT_ID = '5f08282c-c11e-46b3-ae43-0834cc519c17'
-CLIENT_SECRET = 'bpcivTRk5XClKs0tA0qyI46aQu'
-TELEGRAM_TOKEN = '8727067916:AAHflSa95hpf7WtD8jHZbvNZscYWprGlgh0'
-SENDER_NAME = 'messagedesk'  # твоє зареєстроване альфа-ім'я
+from config import load_settings, validate_settings
+from kyivstar_client import KyivstarClient, map_error_message
+from validators import normalize_phone, validate_phone
 
-# ────────────────────────────────────────────────
-USE_SANDBOX = True  # True = пісочниця (тест), False = production (реальні SMS, тарифікується!)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
+logger = logging.getLogger(__name__)
 
-AUTH_URL = "https://api-gateway.kyivstar.ua/idp/oauth2/token"
-
-if USE_SANDBOX:
-    SMS_URL = "https://api-gateway.kyivstar.ua/sandbox/rest/v1beta/sms"
-else:
-    SMS_URL = "https://api-gateway.kyivstar.ua/rest/v1/sms"  # або /rest/v1beta/sms — перевір у кабінеті
-
-bot = Bot(token=TELEGRAM_TOKEN)
+settings = load_settings()
+bot = Bot(token=settings.telegram_token)
 dp = Dispatcher()
+kyivstar_client = KyivstarClient(settings)
 
-def get_kyivstar_token():
-    # Basic Auth: base64(client_id:client_secret)
-    auth_str = f"{CLIENT_ID}:{CLIENT_SECRET}"
-    auth_bytes = auth_str.encode('utf-8')
-    auth_base64 = base64.b64encode(auth_bytes).decode('utf-8')
-
-    headers = {
-        "Authorization": f"Basic {auth_base64}",
-        "Content-Type": "application/x-www-form-urlencoded"
-    }
-    data = {
-        "grant_type": "client_credentials"
-    }
-
-    try:
-        r = requests.post(AUTH_URL, headers=headers, data=data, timeout=10)
-        print("Auth status:", r.status_code)
-        print("Auth response:", r.text)  # для дебагу в консолі
-        r.raise_for_status()
-        return r.json().get("access_token")
-    except Exception as e:
-        print(f"Auth error: {e}")
-        if 'r' in locals():
-            print("Response:", r.text)
-        return None
-
-def send_kyivstar_sms(token, phone, text):
-    if not token:
-        return None, "Токен не отримано"
-
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "from": SENDER_NAME,
-        "to": phone.lstrip('+'),  # 38097...
-        "text": text
-    }
-
-    try:
-        print("Sending SMS to:", SMS_URL)
-        print("Payload:", payload)
-        r = requests.post(SMS_URL, json=payload, headers=headers, timeout=10)
-        print("SMS status:", r.status_code)
-        print("SMS response:", r.text)
-        return r, r.text
-    except Exception as e:
-        return None, str(e)
 
 @dp.message(Command("start"))
 async def start(message: types.Message):
-    mode = "ПІСОЧНИЦЯ (тест)" if USE_SANDBOX else "ПРОДАКШН (реальні SMS!)"
+    mode = "ПІСОЧНИЦЯ (тест)" if settings.use_sandbox else "ПРОДАКШН (реальні SMS!)"
     await message.answer(f"Бот готовий ({mode}). Надішли: `380971234567 Тестове повідомлення`")
+
 
 @dp.message()
 async def handle_sms(message: types.Message):
+    cid = f"{message.chat.id}:{message.message_id}"
+
+    if not message.text:
+        return await message.answer("Надішли текст у форматі: 380971234567 Текст повідомлення")
+
     parts = message.text.strip().split(maxsplit=1)
     if len(parts) < 2:
         return await message.answer("Формат: 380971234567 Текст повідомлення")
 
-    phone, text = parts
-    if not phone.startswith('380') or len(phone) != 12:
-        return await message.answer("Номер у форматі 380971234567 (без +)")
+    phone_input, text = parts
+    phone = normalize_phone(phone_input)
 
-    token = get_kyivstar_token()
+    phone_error = validate_phone(phone)
+    if phone_error:
+        logger.info("[cid=%s] invalid phone input=%s", cid, phone_input)
+        return await message.answer(phone_error)
+
+    if len(text) > settings.max_sms_text_length:
+        logger.info("[cid=%s] sms text too long len=%s", cid, len(text))
+        return await message.answer(
+            f"Текст SMS завеликий: {len(text)} символів. Максимум: {settings.max_sms_text_length}."
+        )
+
+    token = kyivstar_client.get_token(cid=cid)
     if not token:
-        return await message.answer("❌ Не вдалося отримати токен від Київстар. Перевір консоль бота.")
+        return await message.answer("❌ Не вдалося отримати токен від Київстар. Перевір лог бота.")
 
-    res, response_text = send_kyivstar_sms(token, phone, text)
+    response, response_text = kyivstar_client.send_sms(cid=cid, token=token, phone=phone, text=text)
 
-    if res and res.status_code in (200, 201, 202):
-        await message.answer(f"✅ SMS надіслано на {phone} (піточниця/тест)")
-    else:
-        err = f"❌ Помилка {res.status_code if res else 'запиту'}:\n{response_text}"
-        await message.answer(err)
-        print(err)  # лог в консоль
+    if response and response.status_code == 401:
+        logger.info("[cid=%s] sms returned 401, refreshing token", cid)
+        kyivstar_client.invalidate_token_cache()
+        refreshed_token = kyivstar_client.get_token(cid=cid, force_refresh=True)
+        if refreshed_token:
+            response, response_text = kyivstar_client.send_sms(
+                cid=cid,
+                token=refreshed_token,
+                phone=phone,
+                text=text,
+            )
+
+    if response and response.status_code == 200:
+        await message.answer(f"✅ SMS надіслано на {phone} (пісочниця/тест)")
+        return
+
+    status_code = response.status_code if response else None
+    mapped = map_error_message(status_code, response_text)
+    err = f"❌ Помилка {status_code if status_code is not None else 'запиту'}:\n{mapped}"
+    logger.error("[cid=%s] sms send failed status=%s", cid, status_code)
+    await message.answer(err)
+
 
 async def main():
-    print("Бот запущено. Використовується:", "SANDBOX" if USE_SANDBOX else "PROD")
+    config_error = validate_settings(settings)
+    if config_error:
+        raise RuntimeError(f"Помилка конфігурації: {config_error}")
+
+    mode = "SANDBOX" if settings.use_sandbox else "PROD"
+    logger.info("Бот запущено. Mode=%s endpoint=%s", mode, settings.sms_url)
+    if not settings.use_sandbox:
+        logger.warning("Увімкнено PROD режим: SMS можуть тарифікуватися")
+
     await dp.start_polling(bot)
+
 
 if __name__ == "__main__":
     asyncio.run(main())
