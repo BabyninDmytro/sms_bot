@@ -105,4 +105,10 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("Отримано KeyboardInterrupt, зупиняємо бота...")
+    finally:
+        if not bot.session.closed:
+            asyncio.run(bot.session.close())
