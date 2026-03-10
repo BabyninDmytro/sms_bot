@@ -48,17 +48,18 @@ async def handle_sms(message: types.Message):
         logger.info("[cid=%s] invalid phone input=%s", cid, phone_input)
         return await message.answer(phone_error)
 
-    if len(text) > settings.max_sms_text_length:
-        logger.info("[cid=%s] sms text too long len=%s", cid, len(text))
-        return await message.answer(
-            f"Текст SMS завеликий: {len(text)} символів. Максимум: {settings.max_sms_text_length}."
-        )
 
     token = kyivstar_client.get_token(cid=cid)
     if not token:
         return await message.answer("❌ Не вдалося отримати токен від Київстар. Перевір лог бота.")
 
-    response, response_text = kyivstar_client.send_sms(cid=cid, token=token, phone=phone, text=text)
+    response, response_text = kyivstar_client.send_sms(
+        cid=cid,
+        token=token,
+        phone=phone,
+        text=text,
+        max_segments=settings.max_sms_segments,
+    )
 
     if response and response.status_code == 401:
         logger.info("[cid=%s] sms returned 401, refreshing token", cid)
@@ -70,10 +71,11 @@ async def handle_sms(message: types.Message):
                 token=refreshed_token,
                 phone=phone,
                 text=text,
+                max_segments=settings.max_sms_segments,
             )
 
     if response and response.status_code == 200:
-        await message.answer(f"✅ SMS надіслано на {phone} (пісочниця/тест)")
+        await message.answer(f"✅ SMS надіслано на {phone}.")
         return
 
     status_code = response.status_code if response else None
