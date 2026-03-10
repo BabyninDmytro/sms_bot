@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
@@ -18,6 +19,7 @@ settings = load_settings()
 bot = Bot(token=settings.telegram_token)
 dp = Dispatcher()
 kyivstar_client = KyivstarClient(settings)
+MESSAGE_PATTERN = re.compile(r"^\s*(?P<phone>\+?\s*3\s*8\s*0(?:\s*\d){9})\s+(?P<text>.+?)\s*$")
 
 
 @dp.message(Command("start"))
@@ -33,13 +35,14 @@ async def handle_sms(message: types.Message):
     if not message.text:
         return await message.answer("Надішли текст у форматі: 380971234567 Текст повідомлення")
 
-    parts = message.text.strip().split(maxsplit=1)
-    if len(parts) < 2:
+    match = MESSAGE_PATTERN.match(message.text)
+    if not match:
         return await message.answer("Формат: 380971234567 Текст повідомлення")
 
-    phone_input, text = parts
+    phone_input = match.group("phone")
+    text = match.group("text")
     phone = normalize_phone(phone_input)
-    print({phone_input, phone})
+
     phone_error = validate_phone(phone)
     if phone_error:
         logger.info("[cid=%s] invalid phone input=%s", cid, phone_input)

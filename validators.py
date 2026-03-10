@@ -7,7 +7,7 @@ VALID_UA_MOBILE_CODES = {
 
 
 def normalize_phone(phone_input: str) -> str:
-    return phone_input.strip().replace(" ", "").lstrip("+")
+    return "".join(phone_input.split()).lstrip("+")
 
 
 def validate_phone(phone: str) -> Optional[str]:
