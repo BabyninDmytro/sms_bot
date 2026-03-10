@@ -15,6 +15,7 @@ class Settings:
     sender_name: str
     use_sandbox: bool
     max_sms_text_length: int
+    max_sms_segments: int
 
     @property
     def auth_url(self) -> str:
@@ -43,6 +44,16 @@ def _parse_int(value: str, default: int) -> int:
     return default
 
 
+def _parse_int_range(value: str, default: int, min_value: int, max_value: int) -> int:
+    try:
+        parsed = int((value or "").strip())
+        if min_value <= parsed <= max_value:
+            return parsed
+    except ValueError:
+        pass
+    return default
+
+
 def load_settings() -> Settings:
     return Settings(
         client_id=os.getenv("CLIENT_ID", "").strip(),
@@ -51,6 +62,7 @@ def load_settings() -> Settings:
         sender_name=os.getenv("SENDER_NAME", "messagedesk").strip(),
         use_sandbox=_parse_bool(os.getenv("USE_SANDBOX", "true"), default=True),
         max_sms_text_length=_parse_int(os.getenv("MAX_SMS_TEXT_LENGTH", "255"), default=255),
+        max_sms_segments=_parse_int_range(os.getenv("MAX_SMS_SEGMENTS", "6"), default=6, min_value=1, max_value=6),
     )
 
 

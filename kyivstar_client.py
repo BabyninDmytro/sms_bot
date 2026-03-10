@@ -87,7 +87,14 @@ class KyivstarClient:
 
         return None
 
-    def send_sms(self, cid: str, token: str, phone: str, text: str) -> Tuple[Optional[Response], str]:
+    def send_sms(
+        self,
+        cid: str,
+        token: str,
+        phone: str,
+        text: str,
+        max_segments: int,
+    ) -> Tuple[Optional[Response], str]:
         headers = {
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
@@ -96,6 +103,7 @@ class KyivstarClient:
             "from": self.settings.sender_name,
             "to": phone,
             "text": text,
+            "maxSegments": max_segments,
         }
 
         try:
