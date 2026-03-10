@@ -1,20 +1,12 @@
 import asyncio
-import base64
-import os
+import logging
 
-import requests
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
-from dotenv import load_dotenv
 
-# Завантажує змінні з .env у поточне середовище
-load_dotenv()
-
-CLIENT_ID = os.getenv("CLIENT_ID", "").strip()
-CLIENT_SECRET = os.getenv("CLIENT_SECRET", "").strip()
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "").strip()
-SENDER_NAME = os.getenv("SENDER_NAME", "messagedesk").strip()
-USE_SANDBOX = os.getenv("USE_SANDBOX", "true").lower() in {"1", "true", "yes", "on"}
+from config import load_settings, validate_settings
+from kyivstar_client import KyivstarClient, map_error_message
+from validators import normalize_phone, validate_phone
 
 logging.basicConfig(
     level=logging.INFO,
@@ -22,67 +14,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-if USE_SANDBOX:
-    SMS_URL = "https://api-gateway.kyivstar.ua/sandbox/rest/v1beta/sms"
-else:
-    SMS_URL = "https://api-gateway.kyivstar.ua/rest/v1/sms"
-
-bot = Bot(token=TELEGRAM_TOKEN)
+settings = load_settings()
+bot = Bot(token=settings.telegram_token)
 dp = Dispatcher()
 kyivstar_client = KyivstarClient(settings)
-
-
-def validate_config() -> str | None:
-    if not TELEGRAM_TOKEN:
-        return "Не задано TELEGRAM_TOKEN (перевір .env)"
-    if not CLIENT_ID or not CLIENT_SECRET:
-        return "Не задано CLIENT_ID/CLIENT_SECRET (перевір .env)"
-    if not SENDER_NAME:
-        return "Не задано SENDER_NAME (перевір .env)"
-    return None
-
-
-def get_kyivstar_token():
-    auth_str = f"{CLIENT_ID}:{CLIENT_SECRET}"
-    auth_base64 = base64.b64encode(auth_str.encode("utf-8")).decode("utf-8")
-
-    headers = {
-        "Authorization": f"Basic {auth_base64}",
-        "Content-Type": "application/x-www-form-urlencoded",
-    }
-    data = {"grant_type": "client_credentials"}
-
-    try:
-        r = requests.post(AUTH_URL, headers=headers, data=data, timeout=10)
-        print("Auth status:", r.status_code)
-        r.raise_for_status()
-        return r.json().get("access_token")
-    except Exception as e:
-        print(f"Auth error: {e}")
-        if "r" in locals():
-            print("Auth response:", r.text)
-        return None
-
-
-def send_kyivstar_sms(token, phone, text):
-    if not token:
-        return None, "Токен не отримано"
-
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "from": SENDER_NAME,
-        "to": phone.lstrip("+"),
-        "text": text,
-    }
-
-    try:
-        r = requests.post(SMS_URL, json=payload, headers=headers, timeout=10)
-        return r, r.text
-    except Exception as e:
-        return None, str(e)
 
 
 @dp.message(Command("start"))
@@ -102,9 +37,13 @@ async def handle_sms(message: types.Message):
     if len(parts) < 2:
         return await message.answer("Формат: 380971234567 Текст повідомлення")
 
-    phone, text = parts
-    if not phone.startswith("380") or len(phone) != 12:
-        return await message.answer("Номер у форматі 380971234567 (без +)")
+    phone_input, text = parts
+    phone = normalize_phone(phone_input)
+    print({phone_input, phone})
+    phone_error = validate_phone(phone)
+    if phone_error:
+        logger.info("[cid=%s] invalid phone input=%s", cid, phone_input)
+        return await message.answer(phone_error)
 
     if len(text) > settings.max_sms_text_length:
         logger.info("[cid=%s] sms text too long len=%s", cid, len(text))
@@ -140,20 +79,17 @@ async def handle_sms(message: types.Message):
     logger.error("[cid=%s] sms send failed status=%s", cid, status_code)
     await message.answer(err)
 
-    if res and res.status_code in (200, 201, 202):
-        await message.answer(f"✅ SMS надіслано на {phone} (пісочниця/тест)")
-    else:
-        err = f"❌ Помилка {res.status_code if res else 'запиту'}:\n{response_text}"
-        await message.answer(err)
-        print(err)
-
 
 async def main():
-    config_error = validate_config()
+    config_error = validate_settings(settings)
     if config_error:
-        raise RuntimeError(config_error)
+        raise RuntimeError(f"Помилка конфігурації: {config_error}")
 
-    print("Бот запущено. Використовується:", "SANDBOX" if USE_SANDBOX else "PROD")
+    mode = "SANDBOX" if settings.use_sandbox else "PROD"
+    logger.info("Бот запущено. Mode=%s endpoint=%s", mode, settings.sms_url)
+    if not settings.use_sandbox:
+        logger.warning("Увімкнено PROD режим: SMS можуть тарифікуватися")
+
     await dp.start_polling(bot)
 
 
