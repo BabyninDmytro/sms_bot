@@ -16,7 +16,11 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "").strip()
 SENDER_NAME = os.getenv("SENDER_NAME", "messagedesk").strip()
 USE_SANDBOX = os.getenv("USE_SANDBOX", "true").lower() in {"1", "true", "yes", "on"}
 
-AUTH_URL = "https://api-gateway.kyivstar.ua/idp/oauth2/token"
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 if USE_SANDBOX:
     SMS_URL = "https://api-gateway.kyivstar.ua/sandbox/rest/v1beta/sms"
@@ -25,6 +29,7 @@ else:
 
 bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
+kyivstar_client = KyivstarClient(settings)
 
 
 def validate_config() -> str | None:
@@ -82,12 +87,17 @@ def send_kyivstar_sms(token, phone, text):
 
 @dp.message(Command("start"))
 async def start(message: types.Message):
-    mode = "ПІСОЧНИЦЯ (тест)" if USE_SANDBOX else "ПРОДАКШН (реальні SMS!)"
+    mode = "ПІСОЧНИЦЯ (тест)" if settings.use_sandbox else "ПРОДАКШН (реальні SMS!)"
     await message.answer(f"Бот готовий ({mode}). Надішли: `380971234567 Тестове повідомлення`")
 
 
 @dp.message()
 async def handle_sms(message: types.Message):
+    cid = f"{message.chat.id}:{message.message_id}"
+
+    if not message.text:
+        return await message.answer("Надішли текст у форматі: 380971234567 Текст повідомлення")
+
     parts = message.text.strip().split(maxsplit=1)
     if len(parts) < 2:
         return await message.answer("Формат: 380971234567 Текст повідомлення")
@@ -96,11 +106,39 @@ async def handle_sms(message: types.Message):
     if not phone.startswith("380") or len(phone) != 12:
         return await message.answer("Номер у форматі 380971234567 (без +)")
 
-    token = get_kyivstar_token()
-    if not token:
-        return await message.answer("❌ Не вдалося отримати токен від Київстар. Перевір консоль бота.")
+    if len(text) > settings.max_sms_text_length:
+        logger.info("[cid=%s] sms text too long len=%s", cid, len(text))
+        return await message.answer(
+            f"Текст SMS завеликий: {len(text)} символів. Максимум: {settings.max_sms_text_length}."
+        )
 
-    res, response_text = send_kyivstar_sms(token, phone, text)
+    token = kyivstar_client.get_token(cid=cid)
+    if not token:
+        return await message.answer("❌ Не вдалося отримати токен від Київстар. Перевір лог бота.")
+
+    response, response_text = kyivstar_client.send_sms(cid=cid, token=token, phone=phone, text=text)
+
+    if response and response.status_code == 401:
+        logger.info("[cid=%s] sms returned 401, refreshing token", cid)
+        kyivstar_client.invalidate_token_cache()
+        refreshed_token = kyivstar_client.get_token(cid=cid, force_refresh=True)
+        if refreshed_token:
+            response, response_text = kyivstar_client.send_sms(
+                cid=cid,
+                token=refreshed_token,
+                phone=phone,
+                text=text,
+            )
+
+    if response and response.status_code == 200:
+        await message.answer(f"✅ SMS надіслано на {phone} (пісочниця/тест)")
+        return
+
+    status_code = response.status_code if response else None
+    mapped = map_error_message(status_code, response_text)
+    err = f"❌ Помилка {status_code if status_code is not None else 'запиту'}:\n{mapped}"
+    logger.error("[cid=%s] sms send failed status=%s", cid, status_code)
+    await message.answer(err)
 
     if res and res.status_code in (200, 201, 202):
         await message.answer(f"✅ SMS надіслано на {phone} (пісочниця/тест)")
