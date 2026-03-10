@@ -93,7 +93,15 @@ async def main():
     if not settings.use_sandbox:
         logger.warning("Увімкнено PROD режим: SMS можуть тарифікуватися")
 
-    await dp.start_polling(bot)
+    try:
+        await dp.start_polling(bot)
+    except KeyboardInterrupt:
+        logger.info("Отримано KeyboardInterrupt, зупиняємо бота...")
+    finally:
+        try:
+            await bot.session.close()
+        except RuntimeError as exc:
+            logger.warning("Помилка під час закриття bot.session: %s", exc)
 
 
 if __name__ == "__main__":
