@@ -64,3 +64,23 @@
 - Підтримано формат номера з пробілами між цифрами, наприклад: `+380 97 123 45 67 Тест`.
 - Нормалізацію номера посилено: `normalize_phone()` тепер прибирає всі whitespace-символи (не лише пробіл), після чого видаляє префікс `+`.
 - Прибрано службовий `print(...)` з handler, щоб уникнути зайвого виводу в stdout.
+
+### Graceful shutdown при ручній зупинці (Ctrl+C) на Windows
+- Оновлено блок запуску в `__main__`:
+  - `asyncio.run(main())` обгорнуто в `try/except KeyboardInterrupt`, щоб коректно обробляти ручну зупинку.
+  - У `finally` додано явне закриття `bot.session` (якщо вона ще відкрита), щоб зменшити ймовірність `RuntimeError: Event loop is closed` під час фіналізації транспорту в Windows ProactorEventLoop.
+- Додано інформативний лог при отриманні `KeyboardInterrupt`.
+
+### Виправлення shutdown після ревʼю (AiohttpSession.closed)
+- Виявлено, що в `aiogram`-сесії (`AiohttpSession`) немає атрибуту `closed`, тому перевірка `if not bot.session.closed` спричиняла `AttributeError` при зупинці.
+- Shutdown-логіку перенесено в `main()`:
+  - `dp.start_polling(bot)` обгорнуто в `try/finally`.
+  - `await bot.session.close()` виконується в `finally` у межах того ж event loop.
+- У `__main__` залишено лише перехоплення `KeyboardInterrupt` для чистого завершення без зайвого traceback.
+
+### Shutdown (Варіант A): фіналізація в `main()`
+- Уточнено реалізацію graceful shutdown за Варіантом A:
+  - `KeyboardInterrupt` перехоплюється в `main()` навколо `dp.start_polling(bot)`.
+  - Закриття `bot.session` лишається у `finally` того ж event loop.
+- Точка входу спрощена до `asyncio.run(main())` без дублюючого перехоплення переривання в `__main__`.
+- Додано безпечний логований fallback на `RuntimeError` під час закриття сесії, щоб уникати зайвого traceback при завершенні.
