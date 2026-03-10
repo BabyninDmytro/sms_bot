@@ -1,10 +1,11 @@
 import os
 from dataclasses import dataclass
 from typing import Optional
-
+from dotenv import load_dotenv
 
 TRUE_VALUES = {"1", "true", "yes", "on"}
 
+load_dotenv()
 
 @dataclass(frozen=True)
 class Settings:
