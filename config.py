@@ -61,8 +61,8 @@ def load_settings() -> Settings:
         telegram_token=os.getenv("TELEGRAM_TOKEN", "").strip(),
         sender_name=os.getenv("SENDER_NAME", "messagedesk").strip(),
         use_sandbox=_parse_bool(os.getenv("USE_SANDBOX", "true"), default=True),
-        max_sms_text_length=_parse_int(os.getenv("MAX_SMS_TEXT_LENGTH", "255"), default=255),
-        max_sms_segments=_parse_int_range(os.getenv("MAX_SMS_SEGMENTS", "6"), default=6, min_value=1, max_value=6),
+        max_sms_text_length=_parse_int(os.getenv("MAX_SMS_TEXT_LENGTH", ""), default=255),
+        max_sms_segments=_parse_int_range(os.getenv("MAX_SMS_SEGMENTS", ""), default=6, min_value=1, max_value=6),
     )
 
 

@@ -98,14 +98,7 @@ class KyivstarClient:
 
         return None
 
-    async def send_sms(
-        self,
-        cid: str,
-        token: str,
-        phone: str,
-        text: str,
-        max_segments: int,
-    ) -> Tuple[Optional[ClientResponse], str]:
+    async def send_sms(self, cid: str, token: str, phone: str, text: str, max_segments: int) -> Tuple[Optional[ClientResponse], str]:
         headers = {
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
