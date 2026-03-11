@@ -61,37 +61,35 @@ async def _send_sms_alert(
     text: str,
     max_segments: int,
 ) -> bool:
-    token = await asyncio.to_thread(kyivstar_client.get_token, cid)
+    token = await kyivstar_client.get_token(cid)
     if not token:
         logger.error("[cid=%s] Не вдалося отримати токен Kyivstar", cid)
         return False
 
-    response, response_text = await asyncio.to_thread(
-        kyivstar_client.send_sms,
-        cid,
-        token,
-        phone,
-        text,
-        max_segments,
+    response, response_text = await kyivstar_client.send_sms(
+        cid=cid,
+        token=token,
+        phone=phone,
+        text=text,
+        max_segments=max_segments,
     )
 
-    if response and response.status_code == 401:
+    if response and response.status == 401:
         kyivstar_client.invalidate_token_cache()
-        token = await asyncio.to_thread(kyivstar_client.get_token, cid, True)
+        token = await kyivstar_client.get_token(cid, True)
         if token:
-            response, response_text = await asyncio.to_thread(
-                kyivstar_client.send_sms,
-                cid,
-                token,
-                phone,
-                text,
-                max_segments,
+            response, response_text = await kyivstar_client.send_sms(
+                cid=cid,
+                token=token,
+                phone=phone,
+                text=text,
+                max_segments=max_segments,
             )
 
-    if response and response.status_code == 200:
+    if response and response.status == 200:
         return True
 
-    status_code = response.status_code if response else None
+    status_code = response.status if response else None
     logger.error(
         "[cid=%s] SMS alert failed status=%s details=%s",
         cid,
@@ -187,8 +185,11 @@ async def main() -> None:
             if success:
                 logger.info("[cid=%s] Alert SMS sent to %s", cid, phone)
 
-    async with client:
-        await client.run_until_disconnected()
+    try:
+        async with client:
+            await client.run_until_disconnected()
+    finally:
+        await kyivstar_client.close()
 
 
 if __name__ == "__main__":

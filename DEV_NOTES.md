@@ -137,3 +137,11 @@
   - `TELETHON_WATCH_CHATS`, `TELETHON_KEYWORDS`, `TELETHON_ALERT_PHONES`
   - `TELETHON_DEDUPE_SECONDS`, `TELETHON_MAX_SMS_CHARS`
 - Додано короткі пояснення у `.env.example` щодо формату списків, джерела `api_id/api_hash` та призначення параметрів dedupe/ліміту довжини SMS.
+
+### Виправлення Telethon listener для async KyivstarClient
+- Усунено падіння `TypeError: cannot unpack non-iterable coroutine object` у `telethon_listener.py`.
+- Причина: після переходу `KyivstarClient` на async (`aiohttp`) listener все ще викликав `get_token/send_sms` через `asyncio.to_thread(...)`, що повертало coroutine об'єкти.
+- Виправлення:
+  - замінено виклики на прямі `await kyivstar_client.get_token(...)` та `await kyivstar_client.send_sms(...)`;
+  - оновлено перевірку HTTP-статусу на `response.status` (aiohttp), замість `response.status_code`;
+  - додано гарантоване закриття HTTP-сесії Kyivstar client у `finally` через `await kyivstar_client.close()`.
