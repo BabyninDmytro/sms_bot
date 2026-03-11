@@ -101,6 +101,8 @@ async def main():
 
     try:
         await dp.start_polling(bot)
+    except asyncio.CancelledError:
+        logger.info("Отримано CancelledError, зупиняємо бота...")
     except KeyboardInterrupt:
         logger.info("Отримано KeyboardInterrupt, зупиняємо бота...")
     finally:
@@ -112,4 +114,7 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("Бот зупинено користувачем")
