@@ -145,3 +145,8 @@
   - замінено виклики на прямі `await kyivstar_client.get_token(...)` та `await kyivstar_client.send_sms(...)`;
   - оновлено перевірку HTTP-статусу на `response.status` (aiohttp), замість `response.status_code`;
   - додано гарантоване закриття HTTP-сесії Kyivstar client у `finally` через `await kyivstar_client.close()`.
+
+### Graceful shutdown для Telethon listener (Ctrl+C / CancelledError)
+- Усунено шумний traceback при ручній зупинці listener-а (`Ctrl+C`), де з'являвся ланцюжок `CancelledError` -> `KeyboardInterrupt`.
+- У `telethon_listener.py` додано явну обробку `(asyncio.CancelledError, KeyboardInterrupt)` навколо `run_until_disconnected()` з інформативним логом штатного завершення.
+- У `__main__` додано перехоплення `KeyboardInterrupt`, щоб завершення процесу не виглядало як помилка для користувача.

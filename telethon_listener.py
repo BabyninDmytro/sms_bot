@@ -188,9 +188,14 @@ async def main() -> None:
     try:
         async with client:
             await client.run_until_disconnected()
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        logger.info("Отримано сигнал зупинки, завершуємо Telethon listener...")
     finally:
         await kyivstar_client.close()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("Telethon listener зупинено користувачем (Ctrl+C)")
