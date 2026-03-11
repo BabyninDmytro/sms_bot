@@ -116,7 +116,24 @@
 - Прибрано runtime-метрики/лічильники (`sms_success_count`, `sms_failed_count`, `retry`, 4xx/5xx ratio, token timing), як зайві для поточного етапу.
 - Збережено додані unit-тести для `validators`, `map_error_message`, `config`.
 
-### Приглушення traceback при ручній зупинці (Ctrl+C)
-- У `main()` додано окремий `except asyncio.CancelledError` навколо `dp.start_polling(bot)`, щоб коректно логувати штатне скасування polling під час ручного завершення.
-- У точці входу `if __name__ == "__main__"` додано `try/except KeyboardInterrupt` навколо `asyncio.run(main())`, щоб прибрати зайвий traceback при Ctrl+C у Windows.
-- Cleanup залишено у `finally` (`kyivstar_client.close()` та `bot.session.close()`), тож зупинка лишається graceful.
+### Telethon listener (Варіант 2: production-lite)
+- Додано окремий процес `telethon_listener.py` для моніторингу Telegram чатів/каналів через Telethon:
+  - слухає `NewMessage` у вказаних чатах;
+  - шукає ключові слова (`TELETHON_KEYWORDS`);
+  - відкидає дублікати за TTL (`TELETHON_DEDUPE_SECONDS`) через in-memory dedupe cache;
+  - формує SMS-алерт із префіксом `[chat] keyword`, коротким текстом та лінком на повідомлення (`t.me/...` / `t.me/c/...`).
+- Інтеграція з існуючим `KyivstarClient` виконана без зміни основного `aiogram`-бота:
+  - для блокуючих HTTP-викликів використано `asyncio.to_thread(...)`;
+  - збережено retry при `401` (refresh токена + повторний SMS-запит).
+- Додано нові env-параметри в `config.py` для Telethon-пайплайна:
+  - `TELETHON_API_ID`, `TELETHON_API_HASH`, `TELETHON_SESSION_NAME`
+  - `TELETHON_WATCH_CHATS`, `TELETHON_KEYWORDS`, `TELETHON_ALERT_PHONES`
+  - `TELETHON_DEDUPE_SECONDS`, `TELETHON_MAX_SMS_CHARS`
+- Оновлено `requirements.txt`: додано `telethon` та `requests` як явні залежності.
+
+### Оновлення `.env.example` для Telethon listener
+- Додано всі нові змінні оточення, які були введені для `telethon_listener.py`, щоб запуск не вимагав ручного пошуку полів у коді:
+  - `TELETHON_API_ID`, `TELETHON_API_HASH`, `TELETHON_SESSION_NAME`
+  - `TELETHON_WATCH_CHATS`, `TELETHON_KEYWORDS`, `TELETHON_ALERT_PHONES`
+  - `TELETHON_DEDUPE_SECONDS`, `TELETHON_MAX_SMS_CHARS`
+- Додано короткі пояснення у `.env.example` щодо формату списків, джерела `api_id/api_hash` та призначення параметрів dedupe/ліміту довжини SMS.
