@@ -48,12 +48,16 @@ async def handle_sms(message: types.Message):
         logger.info("[cid=%s] invalid phone input=%s", cid, phone_input)
         return await message.answer(phone_error)
 
+    if len(text) > settings.max_sms_text_length:
+        return await message.answer(
+            f"Текст надто довгий: {len(text)} символів. Максимум: {settings.max_sms_text_length}."
+        )
 
-    token = kyivstar_client.get_token(cid=cid)
+    token = await kyivstar_client.get_token(cid=cid)
     if not token:
         return await message.answer("❌ Не вдалося отримати токен від Київстар. Перевір лог бота.")
 
-    response, response_text = kyivstar_client.send_sms(
+    response, response_text = await kyivstar_client.send_sms(
         cid=cid,
         token=token,
         phone=phone,
@@ -61,12 +65,12 @@ async def handle_sms(message: types.Message):
         max_segments=settings.max_sms_segments,
     )
 
-    if response and response.status_code == 401:
+    if response and response.status == 401:
         logger.info("[cid=%s] sms returned 401, refreshing token", cid)
         kyivstar_client.invalidate_token_cache()
-        refreshed_token = kyivstar_client.get_token(cid=cid, force_refresh=True)
+        refreshed_token = await kyivstar_client.get_token(cid=cid, force_refresh=True)
         if refreshed_token:
-            response, response_text = kyivstar_client.send_sms(
+            response, response_text = await kyivstar_client.send_sms(
                 cid=cid,
                 token=refreshed_token,
                 phone=phone,
@@ -74,11 +78,11 @@ async def handle_sms(message: types.Message):
                 max_segments=settings.max_sms_segments,
             )
 
-    if response and response.status_code == 200:
+    if response and response.status == 200:
         await message.answer(f"✅ SMS надіслано на {phone}.")
         return
 
-    status_code = response.status_code if response else None
+    status_code = response.status if response else None
     mapped = map_error_message(status_code, response_text)
     err = f"❌ Помилка {status_code if status_code is not None else 'запиту'}:\n{mapped}"
     logger.error("[cid=%s] sms send failed status=%s", cid, status_code)
@@ -100,6 +104,7 @@ async def main():
     except KeyboardInterrupt:
         logger.info("Отримано KeyboardInterrupt, зупиняємо бота...")
     finally:
+        await kyivstar_client.close()
         try:
             await bot.session.close()
         except RuntimeError as exc:
@@ -107,10 +112,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        logger.info("Отримано KeyboardInterrupt, зупиняємо бота...")
-    finally:
-        if not bot.session.closed:
-            asyncio.run(bot.session.close())
+    asyncio.run(main())
