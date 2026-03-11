@@ -1,6 +1,6 @@
 import unittest
 
-from config import _parse_bool, _parse_int, _parse_int_range
+from config import _parse_bool, _parse_csv_list, _parse_int, _parse_int_range, _parse_optional_int
 
 
 class ConfigParsersTestCase(unittest.TestCase):
@@ -19,6 +19,14 @@ class ConfigParsersTestCase(unittest.TestCase):
         self.assertEqual(_parse_int_range("3", default=1, min_value=1, max_value=6), 3)
         self.assertEqual(_parse_int_range("9", default=2, min_value=1, max_value=6), 2)
         self.assertEqual(_parse_int_range("abc", default=4, min_value=1, max_value=6), 4)
+
+    def test_parse_optional_int(self):
+        self.assertEqual(_parse_optional_int("123", default=0), 123)
+        self.assertEqual(_parse_optional_int("abc", default=7), 7)
+
+    def test_parse_csv_list(self):
+        self.assertEqual(_parse_csv_list("a,b, c"), ("a", "b", "c"))
+        self.assertEqual(_parse_csv_list(""), tuple())
 
 
 if __name__ == "__main__":

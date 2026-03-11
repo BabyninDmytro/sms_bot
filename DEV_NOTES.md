@@ -115,3 +115,38 @@
 - Прибрано структуровані JSON-логи та файловий лог `bot.log` (`RotatingFileHandler`) — повернуто звичне текстове логування.
 - Прибрано runtime-метрики/лічильники (`sms_success_count`, `sms_failed_count`, `retry`, 4xx/5xx ratio, token timing), як зайві для поточного етапу.
 - Збережено додані unit-тести для `validators`, `map_error_message`, `config`.
+
+### Telethon listener (Варіант 2: production-lite)
+- Додано окремий процес `telethon_listener.py` для моніторингу Telegram чатів/каналів через Telethon:
+  - слухає `NewMessage` у вказаних чатах;
+  - шукає ключові слова (`TELETHON_KEYWORDS`);
+  - відкидає дублікати за TTL (`TELETHON_DEDUPE_SECONDS`) через in-memory dedupe cache;
+  - формує SMS-алерт із префіксом `[chat] keyword`, коротким текстом та лінком на повідомлення (`t.me/...` / `t.me/c/...`).
+- Інтеграція з існуючим `KyivstarClient` виконана без зміни основного `aiogram`-бота:
+  - для блокуючих HTTP-викликів використано `asyncio.to_thread(...)`;
+  - збережено retry при `401` (refresh токена + повторний SMS-запит).
+- Додано нові env-параметри в `config.py` для Telethon-пайплайна:
+  - `TELETHON_API_ID`, `TELETHON_API_HASH`, `TELETHON_SESSION_NAME`
+  - `TELETHON_WATCH_CHATS`, `TELETHON_KEYWORDS`, `TELETHON_ALERT_PHONES`
+  - `TELETHON_DEDUPE_SECONDS`, `TELETHON_MAX_SMS_CHARS`
+- Оновлено `requirements.txt`: додано `telethon` та `requests` як явні залежності.
+
+### Оновлення `.env.example` для Telethon listener
+- Додано всі нові змінні оточення, які були введені для `telethon_listener.py`, щоб запуск не вимагав ручного пошуку полів у коді:
+  - `TELETHON_API_ID`, `TELETHON_API_HASH`, `TELETHON_SESSION_NAME`
+  - `TELETHON_WATCH_CHATS`, `TELETHON_KEYWORDS`, `TELETHON_ALERT_PHONES`
+  - `TELETHON_DEDUPE_SECONDS`, `TELETHON_MAX_SMS_CHARS`
+- Додано короткі пояснення у `.env.example` щодо формату списків, джерела `api_id/api_hash` та призначення параметрів dedupe/ліміту довжини SMS.
+
+### Виправлення Telethon listener для async KyivstarClient
+- Усунено падіння `TypeError: cannot unpack non-iterable coroutine object` у `telethon_listener.py`.
+- Причина: після переходу `KyivstarClient` на async (`aiohttp`) listener все ще викликав `get_token/send_sms` через `asyncio.to_thread(...)`, що повертало coroutine об'єкти.
+- Виправлення:
+  - замінено виклики на прямі `await kyivstar_client.get_token(...)` та `await kyivstar_client.send_sms(...)`;
+  - оновлено перевірку HTTP-статусу на `response.status` (aiohttp), замість `response.status_code`;
+  - додано гарантоване закриття HTTP-сесії Kyivstar client у `finally` через `await kyivstar_client.close()`.
+
+### Graceful shutdown для Telethon listener (Ctrl+C / CancelledError)
+- Усунено шумний traceback при ручній зупинці listener-а (`Ctrl+C`), де з'являвся ланцюжок `CancelledError` -> `KeyboardInterrupt`.
+- У `telethon_listener.py` додано явну обробку `(asyncio.CancelledError, KeyboardInterrupt)` навколо `run_until_disconnected()` з інформативним логом штатного завершення.
+- У `__main__` додано перехоплення `KeyboardInterrupt`, щоб завершення процесу не виглядало як помилка для користувача.
