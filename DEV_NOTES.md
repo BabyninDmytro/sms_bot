@@ -115,3 +115,8 @@
 - Прибрано структуровані JSON-логи та файловий лог `bot.log` (`RotatingFileHandler`) — повернуто звичне текстове логування.
 - Прибрано runtime-метрики/лічильники (`sms_success_count`, `sms_failed_count`, `retry`, 4xx/5xx ratio, token timing), як зайві для поточного етапу.
 - Збережено додані unit-тести для `validators`, `map_error_message`, `config`.
+
+### Приглушення traceback при ручній зупинці (Ctrl+C)
+- У `main()` додано окремий `except asyncio.CancelledError` навколо `dp.start_polling(bot)`, щоб коректно логувати штатне скасування polling під час ручного завершення.
+- У точці входу `if __name__ == "__main__"` додано `try/except KeyboardInterrupt` навколо `asyncio.run(main())`, щоб прибрати зайвий traceback при Ctrl+C у Windows.
+- Cleanup залишено у `finally` (`kyivstar_client.close()` та `bot.session.close()`), тож зупинка лишається graceful.
