@@ -54,13 +54,7 @@ class DedupeCache:
             self._seen.pop(key, None)
 
 
-async def _send_sms_alert(
-    kyivstar_client: KyivstarClient,
-    cid: str,
-    phone: str,
-    text: str,
-    max_segments: int,
-) -> bool:
+async def _send_sms_alert(kyivstar_client: KyivstarClient, cid: str, phone: str, text: str, max_segments: int) -> bool:
     token = await kyivstar_client.get_token(cid)
     if not token:
         logger.error("[cid=%s] Не вдалося отримати токен Kyivstar", cid)
